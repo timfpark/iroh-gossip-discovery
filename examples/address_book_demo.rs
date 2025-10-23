@@ -1,4 +1,4 @@
-use iroh::NodeId;
+use iroh_base::EndpointId;
 use iroh_gossip::{net::Gossip, proto::TopicId};
 use iroh_gossip_discovery::{GossipDiscoveryBuilder, Node};
 use std::env;
@@ -33,18 +33,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let node_name = args[1].clone();
     let seed_node_id = if args.len() > 2 {
-        Some(NodeId::from_str(&args[2])?)
+        Some(EndpointId::from_str(&args[2])?)
     } else {
         None
     };
 
     // Create endpoint and gossip (with discovery enabled like the working example)
     let endpoint = iroh::Endpoint::builder()
-        .discovery_n0()
-        .discovery_local_network()
+        .discovery(iroh::discovery::dns::DnsDiscovery::n0_dns())
+        .discovery(iroh::discovery::mdns::MdnsDiscovery::builder())
         .bind()
         .await?;
-    info!(name = %node_name, node_id = %endpoint.node_id(), "Node started");
+    info!(name = %node_name, node_id = %endpoint.id(), "Node started");
 
     let gossip = Gossip::builder().spawn(endpoint.clone());
 
@@ -77,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let node = Node {
         name: node_name.clone(),
-        node_id: endpoint.node_id(),
+        node_id: endpoint.id(),
         count: 0,
     };
 
