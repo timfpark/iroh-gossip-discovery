@@ -3,7 +3,7 @@ use dashmap::DashMap;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use futures::StreamExt;
 
-use iroh::NodeId;
+use iroh_base::EndpointId;
 use iroh_gossip::api::{Event, GossipReceiver, GossipSender};
 use iroh_gossip::net::Gossip;
 use iroh_gossip::proto::TopicId;
@@ -20,13 +20,13 @@ use tracing::{debug, error, info, warn};
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Node {
     pub name: String,
-    pub node_id: NodeId,
+    pub node_id: EndpointId,
     pub count: u32,
 }
 
 #[derive(Debug, Clone)]
 pub struct NodeInfo {
-    pub node_id: NodeId,
+    pub node_id: EndpointId,
     pub last_seen: Instant,
 }
 
@@ -82,8 +82,11 @@ pub enum GossipDiscoveryError {
     Deserialization(String),
     #[error("Signature verification error: {0}")]
     SignatureVerification(String),
-    #[error("NodeId mismatch: expected {expected}, got {actual}")]
-    NodeIdMismatch { expected: NodeId, actual: NodeId },
+    #[error("EndpointId mismatch: expected {expected}, got {actual}")]
+    NodeIdMismatch {
+        expected: EndpointId,
+        actual: EndpointId,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, GossipDiscoveryError>;
@@ -108,7 +111,7 @@ impl GossipDiscoveryBuilder {
         self,
         gossip: Gossip,
         topic_id: TopicId,
-        peers: Vec<NodeId>,
+        peers: Vec<EndpointId>,
         endpoint: &iroh::Endpoint,
     ) -> Result<(GossipDiscoverySender, GossipDiscoveryReceiver)> {
         // - First node (empty peers): use subscribe() only
@@ -149,14 +152,14 @@ impl GossipDiscoveryBuilder {
 }
 
 pub struct GossipDiscoverySender {
-    pub peer_rx: UnboundedReceiver<NodeId>,
+    pub peer_rx: UnboundedReceiver<EndpointId>,
     pub sender: GossipSender,
     pub secret_key: SigningKey,
 }
 
 impl GossipDiscoverySender {
     /// Add external peers to the gossip network
-    pub async fn add_peers(&mut self, peers: Vec<NodeId>) -> Result<()> {
+    pub async fn add_peers(&mut self, peers: Vec<EndpointId>) -> Result<()> {
         if !peers.is_empty() {
             info!(
                 peer_count = peers.len(),
@@ -168,7 +171,7 @@ impl GossipDiscoverySender {
     }
 
     /// Add a single external peer to the gossip network  
-    pub async fn add_peer(&mut self, peer: NodeId) -> Result<()> {
+    pub async fn add_peer(&mut self, peer: EndpointId) -> Result<()> {
         self.add_peers(vec![peer]).await
     }
 
@@ -208,7 +211,7 @@ impl GossipDiscoverySender {
 
 pub struct GossipDiscoveryReceiver {
     pub neighbor_map: Arc<DashMap<String, NodeInfo>>,
-    pub peer_tx: UnboundedSender<NodeId>,
+    pub peer_tx: UnboundedSender<EndpointId>,
     pub receiver: GossipReceiver,
     pub expiration_timeout: Duration,
 }
@@ -229,12 +232,12 @@ impl GossipDiscoveryReceiver {
                         };
 
                     // Verify that the claimed node_id matches the public key
-                    let expected_node_id = NodeId::from(verifying_key);
+                    let expected_node_id = EndpointId::from_verifying_key(verifying_key);
                     if value.node_id != expected_node_id {
                         warn!(
                             claimed_node_id = %value.node_id,
                             actual_node_id = %expected_node_id,
-                            "NodeId spoofing attempt detected, ignoring message"
+                            "EndpointId spoofing attempt detected, ignoring message"
                         );
                         continue;
                     }
@@ -267,7 +270,7 @@ impl GossipDiscoveryReceiver {
         Ok(())
     }
 
-    pub fn get_neighbors(&self) -> Vec<(String, NodeId)> {
+    pub fn get_neighbors(&self) -> Vec<(String, EndpointId)> {
         self.neighbor_map
             .iter()
             .map(|entry| (entry.key().clone(), entry.value().node_id))
